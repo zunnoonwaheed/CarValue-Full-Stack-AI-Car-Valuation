@@ -1,8 +1,8 @@
 import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
-import { 
-  Car, 
-  ChevronRight, 
+import {
+  Car,
+  ChevronRight,
   ChevronLeft,
   Gauge,
   Settings,
@@ -14,7 +14,10 @@ import {
   Wrench,
   Sparkles,
   CheckCircle2,
-  Info
+  Info,
+  Upload,
+  X,
+  Image as ImageIcon
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,7 +44,9 @@ import {
   fuelTypes,
   years,
   formatPrice,
+  getBasePrice,
 } from "@/lib/carData";
+import mockApi from "@/mock/mockApi";
 
 interface FormData {
   make: string;
@@ -56,6 +61,7 @@ interface FormData {
   exteriorCondition: string;
   isAccidental: string;
   modificationStatus: string;
+  images: File[];
 }
 
 const initialFormData: FormData = {
@@ -71,6 +77,7 @@ const initialFormData: FormData = {
   exteriorCondition: "",
   isAccidental: "no",
   modificationStatus: "stock",
+  images: [],
 };
 
 const steps = [
@@ -83,11 +90,12 @@ export default function Evaluate() {
   const [, navigate] = useLocation();
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState<FormData>(initialFormData);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
 
   const models = useMemo(() => getModelsForMake(formData.make), [formData.make]);
   const variants = useMemo(() => getVariantsForModel(formData.make, formData.model), [formData.make, formData.model]);
 
-  const updateField = (field: keyof FormData, value: string) => {
+  const updateField = (field: keyof FormData, value: string | File[]) => {
     setFormData((prev) => {
       const updated = { ...prev, [field]: value };
       if (field === "make") {
@@ -99,6 +107,33 @@ export default function Evaluate() {
       }
       return updated;
     });
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length + formData.images.length > 6) {
+      alert("You can upload a maximum of 6 images");
+      return;
+    }
+
+    const newImages = [...formData.images, ...files];
+    updateField("images", newImages);
+
+    // Create previews
+    files.forEach((file) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreviews((prev) => [...prev, reader.result as string]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const removeImage = (index: number) => {
+    const newImages = formData.images.filter((_, i) => i !== index);
+    const newPreviews = imagePreviews.filter((_, i) => i !== index);
+    updateField("images", newImages);
+    setImagePreviews(newPreviews);
   };
 
   const progress = (currentStep / steps.length) * 100;
@@ -128,22 +163,102 @@ export default function Evaluate() {
     }
   };
 
-  const handleSubmit = () => {
-    const queryParams = new URLSearchParams({
-      make: formData.make,
-      model: formData.model,
-      variant: formData.variant,
-      year: formData.year,
-      mileage: formData.mileage,
-      transmission: formData.transmission,
-      engineCapacity: formData.engineCapacity,
-      fuelType: formData.fuelType,
-      interiorCondition: formData.interiorCondition,
-      exteriorCondition: formData.exteriorCondition,
-      isAccidental: formData.isAccidental,
-      modificationStatus: formData.modificationStatus,
-    });
-    navigate(`/results?${queryParams.toString()}`);
+  const handleSubmit = async () => {
+    try {
+      // Convert images to base64
+      const base64Images = await Promise.all(
+        formData.images.map((file) => {
+          return new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(file);
+          });
+        })
+      );
+
+      // Calculate price estimates (same logic as Results page)
+      const basePrice = getBasePrice(formData.make, formData.model, formData.variant) || 0;
+      const currentYear = new Date().getFullYear();
+      const carYear = parseInt(formData.year);
+      const age = currentYear - carYear;
+      const mileage = parseInt(formData.mileage);
+
+      let depreciationFactor = 1;
+      for (let i = 0; i < age; i++) {
+        if (i === 0) depreciationFactor *= 0.85;
+        else if (i < 3) depreciationFactor *= 0.92;
+        else if (i < 5) depreciationFactor *= 0.94;
+        else depreciationFactor *= 0.96;
+      }
+
+      const avgMileagePerYear = 15000;
+      const expectedMileage = age * avgMileagePerYear;
+      const mileageDiff = mileage - expectedMileage;
+      const mileageAdjustment = mileageDiff > 0 ? 1 - (mileageDiff * 0.000005) : 1 + (Math.abs(mileageDiff) * 0.000003);
+
+      let conditionFactor = 1;
+      if (formData.isAccidental === "yes") conditionFactor *= 0.85;
+      if (formData.modificationStatus === "modified") conditionFactor *= 0.95;
+      if (formData.transmission === "Automatic" || formData.transmission === "CVT") conditionFactor *= 1.05;
+      if (formData.fuelType === "Hybrid") conditionFactor *= 1.08;
+      if (formData.fuelType === "Diesel") conditionFactor *= 0.97;
+
+      const adjustedPrice = basePrice * depreciationFactor * mileageAdjustment * conditionFactor;
+      const variance = adjustedPrice * 0.08;
+
+      const suggestedPrice = Math.round(adjustedPrice / 10000) * 10000;
+      const minPrice = Math.round((adjustedPrice - variance) / 10000) * 10000;
+      const maxPrice = Math.round((adjustedPrice + variance) / 10000) * 10000;
+      const confidence = Math.min(95, 75 + (formData.interiorCondition.length / 20) + (formData.exteriorCondition.length / 20));
+
+      // Save evaluation to backend (using mock API)
+      const evaluation = {
+        userId: "user-001", // Using mock user ID
+        make: formData.make,
+        model: formData.model,
+        variant: formData.variant,
+        year: parseInt(formData.year),
+        mileage: parseInt(formData.mileage),
+        transmission: formData.transmission,
+        engineCapacity: formData.engineCapacity ? parseInt(formData.engineCapacity) : null,
+        fuelType: formData.fuelType,
+        interiorCondition: formData.interiorCondition,
+        exteriorCondition: formData.exteriorCondition,
+        isAccidental: formData.isAccidental === "yes",
+        modificationStatus: formData.modificationStatus,
+        images: base64Images,
+        suggestedPrice,
+        minPrice,
+        maxPrice,
+        confidence: Math.round(confidence),
+        basePrice, // Add base price for mock calculation
+      };
+
+      // Use mock API instead of fetch
+      const savedEvaluation = await mockApi.createEvaluation(evaluation);
+
+      // Navigate to results page with evaluation ID
+      const queryParams = new URLSearchParams({
+        id: savedEvaluation.id,
+        make: formData.make,
+        model: formData.model,
+        variant: formData.variant,
+        year: formData.year,
+        mileage: formData.mileage,
+        transmission: formData.transmission,
+        engineCapacity: formData.engineCapacity,
+        fuelType: formData.fuelType,
+        interiorCondition: formData.interiorCondition,
+        exteriorCondition: formData.exteriorCondition,
+        isAccidental: formData.isAccidental,
+        modificationStatus: formData.modificationStatus,
+        aiAnalysis: savedEvaluation.aiAnalysis || "",
+      });
+      navigate(`/results?${queryParams.toString()}`);
+    } catch (error) {
+      console.error("Error submitting evaluation:", error);
+      alert("Failed to save evaluation. Please try again.");
+    }
   };
 
   const filledFields = Object.values(formData).filter((v) => v && v.length > 0).length;
@@ -380,6 +495,49 @@ export default function Evaluate() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-6">
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-2">
+                        <ImageIcon className="h-4 w-4" />
+                        Car Images (Optional)
+                      </Label>
+                      <p className="text-sm text-muted-foreground">
+                        Upload up to 6 images for AI-powered condition analysis
+                      </p>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                        {imagePreviews.map((preview, index) => (
+                          <div key={index} className="relative group aspect-video rounded-lg overflow-hidden border border-border">
+                            <img
+                              src={preview}
+                              alt={`Car image ${index + 1}`}
+                              className="w-full h-full object-cover"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeImage(index)}
+                              className="absolute top-2 right-2 w-6 h-6 bg-destructive text-destructive-foreground rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                              data-testid={`button-remove-image-${index}`}
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ))}
+                        {formData.images.length < 6 && (
+                          <label className="aspect-video rounded-lg border-2 border-dashed border-border hover:border-primary transition-colors cursor-pointer flex flex-col items-center justify-center gap-2 bg-muted/50 hover:bg-muted">
+                            <Upload className="h-8 w-8 text-muted-foreground" />
+                            <span className="text-xs text-muted-foreground">Upload Image</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              multiple
+                              className="hidden"
+                              onChange={handleImageUpload}
+                              data-testid="input-car-images"
+                            />
+                          </label>
+                        )}
+                      </div>
+                    </div>
+
                     <div className="space-y-2">
                       <Label htmlFor="interiorCondition" className="flex items-center gap-2">
                         <Sparkles className="h-4 w-4" />

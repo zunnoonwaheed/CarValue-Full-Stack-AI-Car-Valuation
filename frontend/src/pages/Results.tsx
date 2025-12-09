@@ -40,6 +40,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { getBasePrice, formatPrice } from "@/lib/carData";
+import mockApi from "@/mock/mockApi";
 import {
   LineChart,
   Line,
@@ -55,6 +56,7 @@ export default function Results() {
   const params = new URLSearchParams(searchString);
   
   const carDetails = {
+    id: params.get("id") || "",
     make: params.get("make") || "",
     model: params.get("model") || "",
     variant: params.get("variant") || "",
@@ -67,6 +69,7 @@ export default function Results() {
     exteriorCondition: params.get("exteriorCondition") || "",
     isAccidental: params.get("isAccidental") || "no",
     modificationStatus: params.get("modificationStatus") || "stock",
+    aiAnalysis: params.get("aiAnalysis") || "",
   };
 
   const [alertDialogOpen, setAlertDialogOpen] = useState(false);
@@ -136,12 +139,40 @@ export default function Results() {
     return data;
   }, [priceEstimate.suggested]);
 
-  const handleCreateAlert = () => {
-    setAlertCreated(true);
-    setTimeout(() => {
-      setAlertDialogOpen(false);
-      setAlertCreated(false);
-    }, 2000);
+  const handleCreateAlert = async () => {
+    try {
+      const targetPrice = alertPrice === "suggested"
+        ? priceEstimate.suggested
+        : parseInt(customPrice);
+
+      if (!targetPrice || targetPrice <= 0) {
+        alert("Please enter a valid price");
+        return;
+      }
+
+      const alertData = {
+        userId: "user-001", // Using mock user ID
+        evaluationId: carDetails.id || null,
+        carName: `${carDetails.year} ${carDetails.make} ${carDetails.model} ${carDetails.variant}`,
+        targetPrice,
+        currentPrice: priceEstimate.suggested,
+        status: "active",
+        notifyEmail,
+        notifyPush,
+      };
+
+      // Use mock API instead of fetch
+      await mockApi.createPriceAlert(alertData);
+
+      setAlertCreated(true);
+      setTimeout(() => {
+        setAlertDialogOpen(false);
+        setAlertCreated(false);
+      }, 2000);
+    } catch (error) {
+      console.error("Error creating alert:", error);
+      alert("Failed to create alert. Please try again.");
+    }
   };
 
   const priceBreakdown = [
@@ -447,6 +478,23 @@ export default function Results() {
               </div>
             </CardContent>
           </Card>
+
+          {/* AI Analysis */}
+          {carDetails.aiAnalysis && (
+            <Card className="mb-6 border-primary/20 bg-primary/5">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-primary" />
+                  AI Condition Analysis
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm leading-relaxed">
+                  {carDetails.aiAnalysis}
+                </p>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Condition Notes */}
           <div className="grid md:grid-cols-2 gap-6">

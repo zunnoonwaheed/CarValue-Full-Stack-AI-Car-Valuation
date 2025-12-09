@@ -1,13 +1,16 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { 
-  Car, 
-  Mail, 
-  Lock, 
-  Eye, 
+import {
+  Car,
+  Mail,
+  Lock,
+  Eye,
   EyeOff,
   ArrowRight,
-  Phone
+  Phone,
+  Shield,
+  User,
+  AlertCircle
 } from "lucide-react";
 import { SiGoogle, SiFacebook, SiApple } from "react-icons/si";
 import { Button } from "@/components/ui/button";
@@ -16,13 +19,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { useAuth, UserRole } from "@/lib/auth";
 
 export default function Login() {
   const [, navigate] = useLocation();
+  const { login } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
   const [loginMethod, setLoginMethod] = useState<"email" | "phone">("email");
+  const [userRole, setUserRole] = useState<UserRole>("user");
+  const [error, setError] = useState("");
   const [formData, setFormData] = useState({
     email: "",
     phone: "",
@@ -33,7 +42,28 @@ export default function Login() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    navigate("/dashboard");
+    setError("");
+
+    // For signup, just navigate (not implemented)
+    if (isSignUp) {
+      navigate("/dashboard");
+      return;
+    }
+
+    // For login, use auth context
+    const username = loginMethod === "email" ? formData.email : formData.phone;
+    const success = login(username, formData.password, userRole);
+
+    if (success) {
+      // Navigate based on role
+      if (userRole === "admin") {
+        navigate("/admin");
+      } else {
+        navigate("/dashboard");
+      }
+    } else {
+      setError("Invalid credentials. Please try again.");
+    }
   };
 
   return (
@@ -55,13 +85,67 @@ export default function Login() {
               {isSignUp ? "Create Account" : "Welcome Back"}
             </CardTitle>
             <CardDescription>
-              {isSignUp 
-                ? "Sign up to save your evaluations and set price alerts" 
+              {isSignUp
+                ? "Sign up to save your evaluations and set price alerts"
+                : userRole === "admin"
+                ? "Admin portal - Full system access"
                 : "Sign in to access your dashboard and saved evaluations"
               }
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
+            {/* User/Admin Toggle */}
+            {!isSignUp && (
+              <div className="flex gap-2 p-1 bg-muted rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => setUserRole("user")}
+                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md transition-all ${
+                    userRole === "user"
+                      ? "bg-background shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <User className="h-4 w-4" />
+                  <span className="font-medium">User</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUserRole("admin")}
+                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md transition-all ${
+                    userRole === "admin"
+                      ? "bg-background shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Shield className="h-4 w-4" />
+                  <span className="font-medium">Admin</span>
+                </button>
+              </div>
+            )}
+
+            {/* Demo Credentials Info */}
+            {!isSignUp && (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription className="text-xs">
+                  <strong>Demo Credentials:</strong><br />
+                  {userRole === "user" ? (
+                    <>User: demo@carvalue.pk / user123</>
+                  ) : (
+                    <>Admin: admin@carvalue.pk / admin123</>
+                  )}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {/* Error Message */}
+            {error && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
             {/* Social Login */}
             <div className="grid grid-cols-3 gap-3">
               <Button variant="outline" className="h-12" data-testid="button-google-login">
