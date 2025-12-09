@@ -90,20 +90,6 @@ npm run check
 npm run preview
 ```
 
-## Deployment
-
-The frontend can be deployed to any static hosting service:
-
-- **Vercel** (Recommended)
-- **Netlify**
-- **AWS S3 + CloudFront**
-- **GitHub Pages**
-- **Any static web server**
-
-Simply run `npm run build` and deploy the `dist/` directory.
-
-All mock data is defined in `frontend/src/mock/mockData.ts`
-
 ## Car Database
 
 Includes comprehensive Pakistan car data:
